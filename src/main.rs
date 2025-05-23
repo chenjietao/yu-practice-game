@@ -4,14 +4,14 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use game::{GameConfig, GameState, Radical, GameMode};
-use std::io;
-use tui::{
+use game::{GameConfig, GameMode, GameState, Radical};
+use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
     widgets::{Block, Borders, Paragraph},
     Terminal,
 };
+use std::io;
 
 mod game;
 
@@ -38,7 +38,7 @@ fn main() -> Result<()> {
         if let Some(parent) = exe_dir.parent() {
             let exe_counts = parent.join("res/counts.txt");
             let exe_radical = parent.join(&config.radical_file);
-            
+
             if exe_counts.exists() && exe_radical.exists() {
                 counts_path = Some(exe_counts);
                 radical_path = Some(exe_radical);
@@ -50,7 +50,7 @@ fn main() -> Result<()> {
     if counts_path.is_none() || radical_path.is_none() {
         let project_counts = std::path::Path::new("res/counts.txt");
         let project_radical = std::path::Path::new(&config.radical_file);
-        
+
         if project_counts.exists() && project_radical.exists() {
             counts_path = Some(project_counts.to_path_buf());
             radical_path = Some(project_radical.to_path_buf());
@@ -60,15 +60,21 @@ fn main() -> Result<()> {
     // 检查是否找到有效的资源路径
     let (counts_path, radical_path) = match (counts_path, radical_path) {
         (Some(c), Some(r)) => (c, r),
-        _ => return Err(anyhow::anyhow!(
-            "无法找到资源文件，请确保res目录位于可执行文件目录或项目根目录下"
-        )),
+        _ => {
+            return Err(anyhow::anyhow!(
+                "无法找到资源文件，请确保res目录位于可执行文件目录或项目根目录下"
+            ))
+        }
     };
 
     // 加载字根数据
     let radicals = Radical::load_from_files(
-        counts_path.to_str().ok_or_else(|| anyhow::anyhow!("无效路径"))?, 
-        radical_path.to_str().ok_or_else(|| anyhow::anyhow!("无效路径"))?
+        counts_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("无效路径"))?,
+        radical_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("无效路径"))?,
     )?;
 
     // 创建游戏状态
@@ -90,15 +96,15 @@ fn run_app(
     game_state: &mut GameState,
 ) -> Result<()> {
     let mut input_buffer = String::new();
-    
+
     loop {
         terminal.draw(|f| {
-            let size = f.size();
-            
+            let size = f.area();
+
             // 在摸鱼模式下，先绘制随机字符背景
             if config.mode == GameMode::Pretend {
-                let pretend_text = Paragraph::new(game_state.generate_pretend_chars())
-                    .block(Block::default());
+                let pretend_text =
+                    Paragraph::new(game_state.generate_pretend_chars()).block(Block::default());
                 f.render_widget(pretend_text, size);
             }
 
@@ -106,11 +112,11 @@ fn run_app(
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints([
-                    Constraint::Length(3),  // 当前字根
-                    Constraint::Length(3),  // 输入框
-                    Constraint::Length(3),  // 错误提示
-                    Constraint::Min(3),  // 键盘布局
-                    Constraint::Length(3),  // 统计信息
+                    Constraint::Length(3), // 当前字根
+                    Constraint::Length(3), // 输入框
+                    Constraint::Length(3), // 错误提示
+                    Constraint::Min(3),    // 键盘布局
+                    Constraint::Length(3), // 统计信息
                 ])
                 .split(size);
 
@@ -121,9 +127,7 @@ fn run_app(
             };
 
             if let Some(radical) = game_state.current_radical() {
-                let radical_block = Block::default()
-                    .title("当前字根")
-                    .borders(border_style);
+                let radical_block = Block::default().title("当前字根").borders(border_style);
                 let radical_text = Paragraph::new(radical.text.clone())
                     .block(radical_block)
                     .alignment(Alignment::Center);
@@ -140,14 +144,12 @@ fn run_app(
             f.render_widget(input_text, chunks[1]);
 
             // 显示错误提示（带边框）
-            let error_block = Block::default()
-                .title("提示")
-                .borders(border_style);
+            let error_block = Block::default().title("提示").borders(border_style);
             let error_text = if let Some(error_msg) = &game_state.last_error {
                 let style = if error_msg.starts_with("【正确】") {
-                    tui::style::Style::default().fg(tui::style::Color::Green)
+                    ratatui::style::Style::default().fg(ratatui::style::Color::Green)
                 } else {
-                    tui::style::Style::default().fg(tui::style::Color::Red)
+                    ratatui::style::Style::default().fg(ratatui::style::Color::Red)
                 };
                 Paragraph::new(error_msg.clone())
                     .style(style)
@@ -159,15 +161,15 @@ fn run_app(
 
             // 键盘布局显示
             if config.mode == GameMode::Normal {
-                use tui::text::{Span, Spans};
-                use tui::style::{Style, Color};
+                use ratatui::style::{Color, Style};
+                use ratatui::text::Line;
+                use ratatui::text::Span;
 
-                let keyboard_block = Block::default()
-                    .borders(Borders::NONE);
+                let keyboard_block = Block::default().borders(Borders::NONE);
 
                 // 创建键盘布局行
-                let mut rows = vec![];
-                
+                let mut rows: Vec<Line> = vec![];
+
                 // 第一行 QWERTYUIOP
                 let mut row1 = vec![Span::raw(" ")];
                 for c in ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"] {
@@ -183,7 +185,7 @@ fn run_app(
                     row1.push(Span::styled(format!("⌈{}⌉", c), style));
                     row1.push(Span::raw(" "));
                 }
-                rows.push(Spans::from(row1));
+                rows.push(Line::from(row1));
 
                 // 第二行 ASDFGHJKL
                 let mut row2 = vec![Span::raw(" ")];
@@ -201,7 +203,7 @@ fn run_app(
                     row2.push(Span::raw(" "));
                 }
                 row2.push(Span::raw("  "));
-                rows.push(Spans::from(row2));
+                rows.push(Line::from(row2));
 
                 // 第三行 ZXCVBNM
                 let mut row3 = vec![Span::raw(" ")];
@@ -219,7 +221,7 @@ fn run_app(
                     row3.push(Span::raw(" "));
                 }
                 row3.push(Span::raw("       "));
-                rows.push(Spans::from(row3));
+                rows.push(Line::from(row3));
 
                 let keyboard = Paragraph::new(rows)
                     .block(keyboard_block)
@@ -234,15 +236,14 @@ fn run_app(
             // 显示进度和统计
             let stats = format!(
                 "进度: {}/{} | 正确: {} | 错误: {} | 退出: {}",
-                game_state.progress().0, game_state.progress().1,
-                game_state.correct_count, game_state.wrong_count,
+                game_state.progress().0,
+                game_state.progress().1,
+                game_state.correct_count,
+                game_state.wrong_count,
                 quit_key
             );
-            let stats_block = Block::default()
-                .title("统计信息")
-                .borders(border_style);
-            let stats_text = Paragraph::new(stats)
-                .block(stats_block);
+            let stats_block = Block::default().title("统计信息").borders(border_style);
+            let stats_text = Paragraph::new(stats).block(stats_block);
             f.render_widget(stats_text, chunks[4]);
         })?;
 
@@ -267,7 +268,7 @@ fn run_app(
                     if !input_buffer.is_empty() {
                         let is_correct = game_state.check_input(&input_buffer, &config);
                         input_buffer.clear();
-                        
+
                         // 根据结果给出反馈
                         if is_correct {
                             // 正确，检查是否需要切换到下一个字根
@@ -282,7 +283,7 @@ fn run_app(
                         }
                     }
                 }
-                KeyCode::Esc  => {
+                KeyCode::Esc => {
                     return Ok(());
                 }
                 _ => {}
@@ -293,19 +294,13 @@ fn run_app(
     }
 }
 
-fn show_welcome(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-) -> Result<()> {
+fn show_welcome(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     terminal.draw(|f| {
-        let size = f.size();
-        let block = Block::default()
-            .title("宇浩字根练习")
-            .borders(Borders::ALL);
-        let welcome_text = Paragraph::new(
-            "欢迎使用宇浩字根练习游戏!\n\n按任意键继续..."
-        )
-        .block(block)
-        .alignment(Alignment::Center);
+        let size = f.area();
+        let block = Block::default().title("宇浩字根练习").borders(Borders::ALL);
+        let welcome_text = Paragraph::new("欢迎使用宇浩字根练习游戏!\n\n按任意键继续...")
+            .block(block)
+            .alignment(Alignment::Center);
         f.render_widget(welcome_text, size);
     })?;
     event::read()?;
@@ -317,10 +312,8 @@ fn show_message(
     message: &str,
 ) -> Result<()> {
     terminal.draw(|f| {
-        let size = f.size();
-        let block = Block::default()
-            .title("提示")
-            .borders(Borders::ALL);
+        let size = f.area();
+        let block = Block::default().title("提示").borders(Borders::ALL);
         let paragraph = Paragraph::new(message)
             .block(block)
             .alignment(Alignment::Center);
