@@ -61,6 +61,7 @@ pub struct GameState {
     pub total_practice: usize,          // 总练习次数
     pub last_error: Option<String>,     // 最后错误信息
     pub recent_radicals: Vec<String>,    // 最近练习的字根(最多3个)
+    pub last_big_code: Option<String>,   // 上一个字根的大码(用于键盘高亮)
 }
 
 impl GameConfig {
@@ -334,10 +335,10 @@ impl Radical {
                 let code = parts[0].to_string();
                 let text = parts[1].to_string();
                 
-                // 假设双编码格式为"大码+小码"
+                // 大码是第一个字符，小码是剩余字符
                 let big_code = code.chars().next().unwrap().to_string();
                 let small_code = if code.len() > 1 {
-                    code.chars().nth(1).unwrap().to_string()
+                    code.chars().skip(1).collect()
                 } else {
                     "".to_string()
                 };
@@ -413,6 +414,7 @@ impl GameState {
             total_practice: 0,
             last_error: None,
             recent_radicals: Vec::with_capacity(6), // 预分配容量为6以适应随机间隔
+            last_big_code: None,
         }
     }
 
@@ -528,7 +530,13 @@ impl GameState {
         self.last_error = message;
 
         // 获取当前字根文本
-        let current_radical_text = self.current_radical().map(|r| r.text.clone());
+        let current_radical = self.current_radical();
+        let current_radical_text = current_radical.map(|r| r.text.clone());
+        
+        // 更新上一个字根的大码
+        if let Some(radical) = current_radical {
+            self.last_big_code = Some(radical.big_code.clone());
+        }
 
         // 更新最近练习的字根列表
         if let Some(text) = &current_radical_text {

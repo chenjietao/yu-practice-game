@@ -109,7 +109,7 @@ fn run_app(
                     Constraint::Length(3),  // 当前字根
                     Constraint::Length(3),  // 输入框
                     Constraint::Length(3),  // 错误提示
-                    Constraint::Min(1),     // 空白区域
+                    Constraint::Min(3),  // 键盘布局
                     Constraint::Length(3),  // 统计信息
                 ])
                 .split(size);
@@ -157,11 +157,86 @@ fn run_app(
             };
             f.render_widget(error_text.block(error_block), chunks[2]);
 
+            // 键盘布局显示
+            if config.mode == GameMode::Normal {
+                use tui::text::{Span, Spans};
+                use tui::style::{Style, Color};
+
+                let keyboard_block = Block::default()
+                    .borders(Borders::NONE);
+
+                // 创建键盘布局行
+                let mut rows = vec![];
+                
+                // 第一行 QWERTYUIOP
+                let mut row1 = vec![Span::raw(" ")];
+                for c in ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"] {
+                    let style = if let Some(big_code) = &game_state.last_big_code {
+                        if c == big_code.to_uppercase() {
+                            Style::default().fg(Color::White).bg(Color::Cyan)
+                        } else {
+                            Style::default()
+                        }
+                    } else {
+                        Style::default()
+                    };
+                    row1.push(Span::styled(format!("⌈{}⌉", c), style));
+                    row1.push(Span::raw(" "));
+                }
+                rows.push(Spans::from(row1));
+
+                // 第二行 ASDFGHJKL
+                let mut row2 = vec![Span::raw(" ")];
+                for c in ["A", "S", "D", "F", "G", "H", "J", "K", "L"] {
+                    let style = if let Some(big_code) = &game_state.last_big_code {
+                        if c == big_code.to_uppercase() {
+                            Style::default().fg(Color::White).bg(Color::Cyan)
+                        } else {
+                            Style::default()
+                        }
+                    } else {
+                        Style::default()
+                    };
+                    row2.push(Span::styled(format!("⌈{}⌉", c), style));
+                    row2.push(Span::raw(" "));
+                }
+                row2.push(Span::raw("  "));
+                rows.push(Spans::from(row2));
+
+                // 第三行 ZXCVBNM
+                let mut row3 = vec![Span::raw(" ")];
+                for c in ["Z", "X", "C", "V", "B", "N", "M"] {
+                    let style = if let Some(big_code) = &game_state.last_big_code {
+                        if c == big_code.to_uppercase() {
+                            Style::default().fg(Color::White).bg(Color::Cyan)
+                        } else {
+                            Style::default()
+                        }
+                    } else {
+                        Style::default()
+                    };
+                    row3.push(Span::styled(format!("⌈{}⌉", c), style));
+                    row3.push(Span::raw(" "));
+                }
+                row3.push(Span::raw("       "));
+                rows.push(Spans::from(row3));
+
+                let keyboard = Paragraph::new(rows)
+                    .block(keyboard_block)
+                    .alignment(Alignment::Center);
+                f.render_widget(keyboard, chunks[3]);
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            let quit_key = "ESC/Alt+Q";
+            #[cfg(target_os = "macos")]
+            let quit_key = "ESC/Control+Q";
             // 显示进度和统计
             let stats = format!(
-                "进度: {}/{} | 正确: {} | 错误: {} | 退出: ESC/Alt+Q",
+                "进度: {}/{} | 正确: {} | 错误: {} | 退出: {}",
                 game_state.progress().0, game_state.progress().1,
-                game_state.correct_count, game_state.wrong_count
+                game_state.correct_count, game_state.wrong_count,
+                quit_key
             );
             let stats_block = Block::default()
                 .title("统计信息")
@@ -174,8 +249,12 @@ fn run_app(
         // 处理用户输入
         if let Event::Key(key) = event::read()? {
             match key.code {
-                // macOS上Option键对应ALT修饰符，所以Option+Q也能退出
+                #[cfg(not(target_os = "macos"))]
                 KeyCode::Char('q') if key.modifiers.contains(event::KeyModifiers::ALT) => {
+                    return Ok(());
+                }
+                #[cfg(target_os = "macos")]
+                KeyCode::Char('q') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
                     return Ok(());
                 }
                 KeyCode::Char(c) => {
