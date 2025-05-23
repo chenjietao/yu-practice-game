@@ -317,6 +317,8 @@ fn show_welcome(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result
             }
         }
     }
+    #[cfg(not(windows))]
+    event::read()?;
     Ok(())
 }
 

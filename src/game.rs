@@ -121,7 +121,7 @@ impl GameConfig {
                         "界面模式: {}",
                         match config.mode {
                             GameMode::Normal => "正常模式",
-                            GameMode::Pretend => "摸鱼模式",
+                            GameMode::Pretend => "摸鱼模式(界面空白区域使用随机字符填充)",
                         }
                     )),
                 ];
