@@ -8,7 +8,7 @@ use game::{GameConfig, GameMode, GameState, Radical};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, ListState, Paragraph},
     Terminal,
 };
 use std::io;
@@ -302,24 +302,433 @@ fn show_welcome(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result
     terminal.draw(|f| {
         let size = f.area();
         let block = Block::default().title("宇浩字根练习").borders(Borders::ALL);
-        let welcome_text = Paragraph::new("欢迎使用宇浩字根练习游戏!\n\n按任意键继续...")
-            .block(block)
-            .alignment(Alignment::Center);
+        let welcome_text =
+            Paragraph::new("欢迎使用宇浩字根练习游戏!\n\n按任意键继续...\n按Z键进入字根编码转换")
+                .block(block)
+                .alignment(Alignment::Center);
         f.render_widget(welcome_text, size);
     })?;
-    #[cfg(windows)]
+
     loop {
-        if let Event::Key(_key) = event::read()? {
-            if _key.kind != crossterm::event::KeyEventKind::Press {
+        if let Event::Key(key) = event::read()? {
+            #[cfg(windows)]
+            if key.kind != crossterm::event::KeyEventKind::Press {
                 continue;
-            } else {
-                break;
+            }
+            if key.code == KeyCode::Char('z') || key.code == KeyCode::Char('Z') {
+                return show_conversion_ui(terminal);
+            }
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn show_conversion_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+    use crossterm::event::KeyCode;
+    use ratatui::style::{Color, Style};
+    use ratatui::widgets::{List, ListItem};
+
+    let mut input_fields = vec![
+        (String::from("../yustar_chaifen.dict.yaml"), 0), // (文本内容, 光标位置)
+        (String::from("res/current-code.txt"), 0),
+        (String::from("res/current-counts.txt"), 0),
+    ];
+    // 初始化光标位置到末尾
+    for (text, pos) in &mut input_fields {
+        *pos = text.len();
+    }
+    enum FocusState {
+        InputField(usize),
+        Button(bool), // true for confirm, false for cancel
+    }
+    let mut focus_state = FocusState::InputField(0);
+
+    loop {
+        terminal.draw(|f| {
+            let size = f.area();
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(1)
+                .constraints([
+                    Constraint::Length(4), // 标题
+                    Constraint::Length(5), // 文件路径
+                    Constraint::Length(3), // 按钮
+                    Constraint::Min(1),    // 空白区域
+                ])
+                .split(size);
+
+            // 标题
+            let title = Paragraph::new(
+                "字根编码转换，支持从宇浩单字拆分表导出\n字根编码和字根使用频率，当前仅支持双编码",
+            )
+            .block(Block::default().borders(Borders::ALL))
+            .alignment(Alignment::Center);
+            f.render_widget(title, chunks[0]);
+
+            // 输入框列表
+            let items = vec![
+                ListItem::new(format!(
+                    "拆分表文件: {}|{}",
+                    &input_fields[0].0[..input_fields[0].1],
+                    &input_fields[0].0[input_fields[0].1..]
+                )),
+                ListItem::new(format!(
+                    "编码文件: {}|{}",
+                    &input_fields[1].0[..input_fields[1].1],
+                    &input_fields[1].0[input_fields[1].1..]
+                )),
+                ListItem::new(format!(
+                    "频率文件: {}|{}",
+                    &input_fields[2].0[..input_fields[2].1],
+                    &input_fields[2].0[input_fields[2].1..]
+                )),
+            ];
+
+            // 输入框列表
+            let selected = match focus_state {
+                FocusState::InputField(idx) => Some(idx),
+                _ => None,
+            };
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL))
+                .highlight_style(Style::default().bg(Color::Blue))
+                .highlight_symbol(">> ");
+            f.render_stateful_widget(
+                list,
+                chunks[1],
+                &mut ListState::default().with_selected(selected),
+            );
+
+            // 按钮
+            let button_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(chunks[2]);
+
+            let confirm_button = Paragraph::new("[确认]")
+                .block(Block::default().borders(Borders::ALL))
+                .style(match focus_state {
+                    FocusState::Button(true) => Style::default().fg(Color::Green).bg(Color::Blue),
+                    _ => Style::default(),
+                })
+                .alignment(Alignment::Center);
+            f.render_widget(confirm_button, button_chunks[0]);
+
+            let cancel_button = Paragraph::new("[取消]")
+                .block(Block::default().borders(Borders::ALL))
+                .style(match focus_state {
+                    FocusState::Button(false) => Style::default().fg(Color::Red).bg(Color::Blue),
+                    _ => Style::default(),
+                })
+                .alignment(Alignment::Center);
+            f.render_widget(cancel_button, button_chunks[1]);
+        })?;
+
+        if let Event::Key(key) = event::read()? {
+            #[cfg(windows)]
+            if key.kind != crossterm::event::KeyEventKind::Press {
+                continue;
+            }
+            match key.code {
+                KeyCode::Up => {
+                    match focus_state {
+                        FocusState::InputField(idx) => {
+                            // 先将当前输入框光标移动到末尾
+                            let (text, pos) = &mut input_fields[idx];
+                            *pos = text.len();
+                            // 再切换到上一个输入框
+                            if idx > 0 {
+                                focus_state = FocusState::InputField(idx - 1);
+                            }
+                        }
+                        FocusState::Button(_) => {
+                            // 从按钮切换到输入框时，先将最后一个输入框光标移动到末尾
+                            let (text, pos) = &mut input_fields[2];
+                            *pos = text.len();
+                            focus_state = FocusState::InputField(2);
+                        }
+                    }
+                }
+                KeyCode::Down => {
+                    match focus_state {
+                        FocusState::InputField(idx) => {
+                            // 先将当前输入框光标移动到末尾
+                            let (text, pos) = &mut input_fields[idx];
+                            *pos = text.len();
+                            // 再切换到下一个输入框或按钮
+                            if idx < 2 {
+                                focus_state = FocusState::InputField(idx + 1);
+                            } else {
+                                focus_state = FocusState::Button(true);
+                            }
+                        }
+                        FocusState::Button(_) => {
+                            focus_state = FocusState::Button(false);
+                        }
+                    }
+                }
+                KeyCode::Left => {
+                    match focus_state {
+                        FocusState::InputField(idx) => {
+                            // 在输入框内左移光标
+                            let (_text, pos) = &mut input_fields[idx];
+                            if *pos > 0 {
+                                *pos -= 1;
+                            }
+                        }
+                        FocusState::Button(_) => {
+                            // 左右键在按钮间切换
+                            focus_state = FocusState::Button(true);
+                        }
+                    }
+                }
+                KeyCode::Right => {
+                    match focus_state {
+                        FocusState::InputField(idx) => {
+                            // 在输入框内右移光标
+                            let (text, pos) = &mut input_fields[idx];
+                            if *pos < text.len() {
+                                *pos += 1;
+                            }
+                        }
+                        FocusState::Button(_) => {
+                            // 左右键在按钮间切换
+                            focus_state = FocusState::Button(false);
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    match focus_state {
+                        FocusState::Button(true) => {
+                            // 确认按钮被选中 - 执行转换后直接退出
+                            convert_radicals(
+                                &input_fields[0].0,
+                                &input_fields[1].0,
+                                &input_fields[2].0,
+                            )?;
+                            return show_welcome(terminal);
+                        }
+                        FocusState::Button(false) => {
+                            // 取消按钮被选中 - 返回欢迎界面
+                            return show_welcome(terminal);
+                        }
+                        _ => {}
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if let FocusState::InputField(idx) = focus_state {
+                        let (text, pos) = &mut input_fields[idx];
+                        text.insert(*pos, c);
+                        *pos += 1;
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let FocusState::InputField(idx) = focus_state {
+                        let (text, pos) = &mut input_fields[idx];
+                        if *pos > 0 {
+                            text.remove(*pos - 1);
+                            *pos -= 1;
+                        }
+                    }
+                }
+                KeyCode::Esc => {
+                    return show_welcome(terminal);
+                }
+                _ => {}
             }
         }
     }
-    #[cfg(not(windows))]
-    event::read()?;
+}
+
+fn convert_radicals(
+    input_path: &str,
+    code_output_path: &str,
+    counts_output_path: &str,
+) -> Result<()> {
+    use std::collections::HashMap;
+    use std::fs::File;
+    use std::io::{BufRead, BufReader, Write};
+    use std::path::Path;
+
+    // 检查输入文件是否存在
+    if !Path::new(input_path).exists() {
+        return Err(anyhow::anyhow!("拆分表文件不存在: {}", input_path));
+    }
+
+    // 读取输入文件
+    let file = File::open(input_path)?;
+    let reader = BufReader::new(file);
+
+    let mut radical_counts = HashMap::new();
+    let mut radical_codes = HashMap::new();
+    let mut processing = false;
+    let mut counting = false;
+
+    for line in reader.lines() {
+        let line = line?;
+        let line = line.trim();
+
+        // 跳过注释行和空行
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // 检查是否到达"一"行
+        if line.starts_with("一\t") {
+            processing = true;
+            counting = true;
+        }
+
+        if processing {
+            // 解析行格式：汉字\t[拆分,编码,拼音,字符集,unicode]
+            let tab_start = line.find('\t').unwrap_or(2);
+            if let Some(bracket_start) = line[tab_start..].find('[').map(|i| i + tab_start) {
+                if let Some(bracket_end) = line[tab_start..].find(']').map(|i| i + tab_start) {
+                    let content = &line[bracket_start + 1..bracket_end];
+                    let parts: Vec<&str> = content.split(',').collect();
+                    if parts.len() >= 2 {
+                        let radicals = parts[0].trim(); // 拆分部分
+                        let codes = parts[1].trim(); // 编码部分
+
+                        if radicals.is_empty() {
+                            continue;
+                        }
+
+                        // 处理拆分和编码
+                        let radical_list = extract_radicals(radicals);
+                        let code_list = extract_codes(codes);
+
+                        if radical_list.len() == code_list.len() {
+                            let mut i = 0;
+                            for (radical, code) in radical_list.iter().zip(code_list.iter()) {
+                                if counting {
+                                    // 统计字根出现次数
+                                    *radical_counts.entry(radical.to_string()).or_insert(0) += 1;
+                                }
+
+                                i += 1;
+                                if i < 4 && code_list.len() == i {
+                                    // 记录字根编码
+                                    radical_codes.insert(radical.to_string(), code.to_string());
+                                    // 特殊处理"曾中"字根，使用"横日"的编码
+                                    if radical == "{横日}" {
+                                        radical_codes
+                                            .insert("{曾中}".to_string(), code.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 检查是否到达"𮹝"行
+        if line.starts_with("𮹝\t") {
+            counting = false;
+        } else if line.starts_with("Ä\t") {
+            break;
+        }
+    }
+
+    // 按编码排序并写入编码文件
+    let mut sorted_codes: Vec<(&String, &String)> = radical_codes.iter().collect();
+    sorted_codes.sort_by(|a, b| a.1.cmp(b.1));
+
+    let mut code_file = File::create(code_output_path)?;
+    for (radical, code) in sorted_codes {
+        writeln!(code_file, "{} {}", code, radical)?;
+    }
+
+    // 按频率排序并写入频率文件
+    let mut sorted_counts: Vec<(&String, &u32)> = radical_counts.iter().collect();
+    sorted_counts.sort_by(|a, b| b.1.cmp(a.1));
+
+    let mut counts_file = File::create(counts_output_path)?;
+    for (radical, count) in sorted_counts {
+        writeln!(counts_file, "{} {}", radical, count)?;
+    }
+
     Ok(())
+}
+
+fn extract_radicals(radicals: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut in_brackets = false;
+
+    for c in radicals.chars() {
+        match c {
+            '{' => {
+                in_brackets = true;
+                current.clear();
+                current.push(c);
+            }
+            '}' => {
+                in_brackets = false;
+                if !current.is_empty() {
+                    current.push(c);
+                    result.push(current.clone());
+                    current.clear();
+                }
+            }
+            _ => {
+                if in_brackets {
+                    current.push(c);
+                } else {
+                    result.push(c.to_string());
+                }
+            }
+        }
+    }
+
+    result
+}
+
+fn extract_codes(codes: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut in_code = false;
+
+    for c in codes.chars() {
+        if c.is_uppercase() {
+            // 大写字母开始新编码
+            if !current.is_empty() {
+                result.push(current.clone());
+                current.clear();
+            }
+            current.push(c.to_ascii_lowercase());
+            in_code = true;
+        } else if c.is_lowercase() && in_code {
+            // 小写字母继续当前编码
+            current.push(c);
+        } else {
+            // 其他字符结束当前编码
+            if !current.is_empty() {
+                result.push(current.clone());
+                current.clear();
+                in_code = false;
+            }
+        }
+    }
+
+    // 添加最后一个编码
+    if !current.is_empty() {
+        result.push(current);
+    }
+
+    // 如果编码长度>2，只取前两个字母
+    result
+        .iter()
+        .map(|code| {
+            if code.len() > 2 {
+                code[..2].to_string()
+            } else {
+                code.clone()
+            }
+        })
+        .collect()
 }
 
 fn show_message(
