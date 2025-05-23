@@ -143,6 +143,10 @@ impl GameConfig {
             })?;
 
             if let Event::Key(key) = event::read()? {
+                #[cfg(windows)]
+                if key.kind != crossterm::event::KeyEventKind::Press {
+                    continue;
+                }
                 match key.code {
                     KeyCode::Up => {
                         if selected_item > 0 {
@@ -204,6 +208,12 @@ impl GameConfig {
 
                                             loop {
                                                 if let Event::Key(key) = event::read()? {
+                                                    #[cfg(windows)]
+                                                    if key.kind
+                                                        != crossterm::event::KeyEventKind::Press
+                                                    {
+                                                        continue;
+                                                    }
                                                     match key.code {
                                                         KeyCode::Char(c) => {
                                                             input.push(c);

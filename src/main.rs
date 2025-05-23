@@ -182,7 +182,7 @@ fn run_app(
                     } else {
                         Style::default()
                     };
-                    row1.push(Span::styled(format!("⌈{}⌉", c), style));
+                    row1.push(Span::styled(format!("[{}]", c), style));
                     row1.push(Span::raw(" "));
                 }
                 rows.push(Line::from(row1));
@@ -199,7 +199,7 @@ fn run_app(
                     } else {
                         Style::default()
                     };
-                    row2.push(Span::styled(format!("⌈{}⌉", c), style));
+                    row2.push(Span::styled(format!("[{}]", c), style));
                     row2.push(Span::raw(" "));
                 }
                 row2.push(Span::raw("  "));
@@ -217,7 +217,7 @@ fn run_app(
                     } else {
                         Style::default()
                     };
-                    row3.push(Span::styled(format!("⌈{}⌉", c), style));
+                    row3.push(Span::styled(format!("[{}]", c), style));
                     row3.push(Span::raw(" "));
                 }
                 row3.push(Span::raw("       "));
@@ -249,6 +249,10 @@ fn run_app(
 
         // 处理用户输入
         if let Event::Key(key) = event::read()? {
+            #[cfg(windows)]
+            if key.kind != crossterm::event::KeyEventKind::Press {
+                continue;
+            }
             match key.code {
                 #[cfg(not(target_os = "macos"))]
                 KeyCode::Char('q') if key.modifiers.contains(event::KeyModifiers::ALT) => {
@@ -303,7 +307,16 @@ fn show_welcome(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result
             .alignment(Alignment::Center);
         f.render_widget(welcome_text, size);
     })?;
-    event::read()?;
+    #[cfg(windows)]
+    loop {
+        if let Event::Key(_key) = event::read()? {
+            if _key.kind != crossterm::event::KeyEventKind::Press {
+                continue;
+            } else {
+                break;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -320,6 +333,16 @@ fn show_message(
         f.render_widget(paragraph, size);
     })?;
     // 等待用户按键
-    while event::read()? != Event::Key(KeyCode::Enter.into()) {}
+    loop {
+        if let Event::Key(key) = event::read()? {
+            #[cfg(windows)]
+            if key.kind != crossterm::event::KeyEventKind::Press {
+                continue;
+            }
+            if key.code == KeyCode::Enter {
+                break;
+            }
+        }
+    }
     Ok(())
 }
