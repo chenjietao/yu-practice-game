@@ -8,10 +8,15 @@ use game::{GameConfig, GameMode, GameState, Radical};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
-    widgets::{Block, Borders, ListState, Paragraph},
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Terminal,
 };
-use std::io;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Write};
+use std::path::Path;
 
 mod game;
 
@@ -36,7 +41,7 @@ fn main() -> Result<()> {
     // 1. 首先尝试从可执行文件目录查找
     if let Ok(exe_dir) = std::env::current_exe() {
         if let Some(parent) = exe_dir.parent() {
-            let exe_counts = parent.join("res/counts.txt");
+            let exe_counts = parent.join(&config.frequency_file);
             let exe_radical = parent.join(&config.radical_file);
 
             if exe_counts.exists() && exe_radical.exists() {
@@ -48,7 +53,7 @@ fn main() -> Result<()> {
 
     // 2. 如果可执行文件目录找不到，尝试从项目根目录查找
     if counts_path.is_none() || radical_path.is_none() {
-        let project_counts = std::path::Path::new("res/counts.txt");
+        let project_counts = std::path::Path::new(&config.frequency_file);
         let project_radical = std::path::Path::new(&config.radical_file);
 
         if project_counts.exists() && project_radical.exists() {
@@ -161,10 +166,6 @@ fn run_app(
 
             // 键盘布局显示
             if config.mode == GameMode::Normal {
-                use ratatui::style::{Color, Style};
-                use ratatui::text::Line;
-                use ratatui::text::Span;
-
                 let keyboard_block = Block::default().borders(Borders::NONE);
 
                 // 创建键盘布局行
@@ -325,14 +326,10 @@ fn show_welcome(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result
 }
 
 fn show_conversion_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-    use crossterm::event::KeyCode;
-    use ratatui::style::{Color, Style};
-    use ratatui::widgets::{List, ListItem};
-
     let mut input_fields = vec![
-        (String::from("../yustar_chaifen.dict.yaml"), 0), // (文本内容, 光标位置)
-        (String::from("res/current-code.txt"), 0),
-        (String::from("res/current-counts.txt"), 0),
+        (String::from("./yustar_chaifen.dict.yaml"), 0), // (文本内容, 光标位置)
+        (String::from("res/yucode-custom.txt"), 0),
+        (String::from("res/counts-custom.txt"), 0),
     ];
     // 初始化光标位置到末尾
     for (text, pos) in &mut input_fields {
@@ -360,39 +357,54 @@ fn show_conversion_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> 
 
             // 标题
             let title = Paragraph::new(
-                "字根编码转换，支持从宇浩单字拆分表导出\n字根编码和字根使用频率，当前仅支持双编码",
+                "字根编码转换，支持从宇浩单字拆分表导出字根编码和\n字根使用频率，当前仅支持双编码(宇浩日月暂不支持)",
             )
             .block(Block::default().borders(Borders::ALL))
             .alignment(Alignment::Center);
             f.render_widget(title, chunks[0]);
 
             // 输入框列表
-            let items = vec![
-                ListItem::new(format!(
-                    "拆分表文件: {}|{}",
-                    &input_fields[0].0[..input_fields[0].1],
-                    &input_fields[0].0[input_fields[0].1..]
-                )),
-                ListItem::new(format!(
-                    "编码文件: {}|{}",
-                    &input_fields[1].0[..input_fields[1].1],
-                    &input_fields[1].0[input_fields[1].1..]
-                )),
-                ListItem::new(format!(
-                    "频率文件: {}|{}",
-                    &input_fields[2].0[..input_fields[2].1],
-                    &input_fields[2].0[input_fields[2].1..]
-                )),
-            ];
+            let items: Vec<_> = input_fields
+                .iter()
+                .enumerate()
+                .map(|(i, (text, pos))| {
+                    let mut spans = Vec::new();
+                    let label = match i {
+                        0 => "拆分表文件: ",
+                        1 => "编码文件: ",
+                        2 => "频率文件: ",
+                        _ => "",
+                    };
+                    spans.push(Span::raw(label));
+                    for (idx, ch) in text.chars().enumerate() {
+                        if *pos == idx && matches!(focus_state, FocusState::InputField(j) if j == i) {
+                            // 高亮当前光标字符
+                            spans.push(Span::styled(
+                                ch.to_string(),
+                                Style::default().fg(Color::White).bg(Color::Black),
+                            ));
+                        } else {
+                            spans.push(Span::raw(ch.to_string()));
+                        }
+                    }
+                    // 如果光标在末尾，显示一个高亮空格
+                    if *pos == text.len() && matches!(focus_state, FocusState::InputField(j) if j == i) {
+                        spans.push(Span::styled(
+                            " ".to_string(),
+                            Style::default().fg(Color::White).bg(Color::Black),
+                        ));
+                    }
+                    ListItem::new(Line::from(spans))
+                })
+                .collect();
 
-            // 输入框列表
             let selected = match focus_state {
                 FocusState::InputField(idx) => Some(idx),
                 _ => None,
             };
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL))
-                .highlight_style(Style::default().bg(Color::Blue))
+                // .highlight_style(Style::default().bg(Color::Blue))
                 .highlight_symbol(">> ");
             f.render_stateful_widget(
                 list,
@@ -409,7 +421,7 @@ fn show_conversion_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> 
             let confirm_button = Paragraph::new("[确认]")
                 .block(Block::default().borders(Borders::ALL))
                 .style(match focus_state {
-                    FocusState::Button(true) => Style::default().fg(Color::Green).bg(Color::Blue),
+                    FocusState::Button(true) => Style::default().fg(Color::White).bg(Color::Green),
                     _ => Style::default(),
                 })
                 .alignment(Alignment::Center);
@@ -418,7 +430,7 @@ fn show_conversion_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> 
             let cancel_button = Paragraph::new("[取消]")
                 .block(Block::default().borders(Borders::ALL))
                 .style(match focus_state {
-                    FocusState::Button(false) => Style::default().fg(Color::Red).bg(Color::Blue),
+                    FocusState::Button(false) => Style::default().fg(Color::White).bg(Color::Red),
                     _ => Style::default(),
                 })
                 .alignment(Alignment::Center);
@@ -546,11 +558,6 @@ fn convert_radicals(
     code_output_path: &str,
     counts_output_path: &str,
 ) -> Result<()> {
-    use std::collections::HashMap;
-    use std::fs::File;
-    use std::io::{BufRead, BufReader, Write};
-    use std::path::Path;
-
     // 检查输入文件是否存在
     if !Path::new(input_path).exists() {
         return Err(anyhow::anyhow!("拆分表文件不存在: {}", input_path));
@@ -638,7 +645,7 @@ fn convert_radicals(
 
     let mut code_file = File::create(code_output_path)?;
     for (radical, code) in sorted_codes {
-        writeln!(code_file, "{} {}", code, radical)?;
+        writeln!(code_file, "{} {}", code.trim(), radical.trim())?;
     }
 
     // 按频率排序并写入频率文件
@@ -647,7 +654,7 @@ fn convert_radicals(
 
     let mut counts_file = File::create(counts_output_path)?;
     for (radical, count) in sorted_counts {
-        writeln!(counts_file, "{} {}", radical, count)?;
+        writeln!(counts_file, "{} {}", radical.trim(), count)?;
     }
 
     Ok(())

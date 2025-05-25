@@ -1,6 +1,13 @@
 use anyhow::Result;
-use crossterm::event::{self, Event};
-use ratatui::{backend::CrosstermBackend, layout::Alignment, widgets::ListState, Terminal};
+use crossterm::event::{self, Event, KeyCode};
+use rand::{seq::SliceRandom, Rng};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Alignment, Constraint, Direction, Layout},
+    style::{Color, Style},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    Terminal,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -18,6 +25,7 @@ pub struct Radical {
 #[derive(Debug, Clone)]
 pub struct GameConfig {
     pub radical_file: String,        // 字根文件路径
+    pub frequency_file: String,      // 频率文件路径
     pub penalty: usize,              // 错1罚几
     pub practice_mode: PracticeMode, // 练习模式
     pub order: PracticeOrder,        // 练习顺序
@@ -62,16 +70,10 @@ impl GameConfig {
     pub fn show_settings_menu(
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> Result<Self> {
-        use crossterm::event::KeyCode;
-        use ratatui::{
-            layout::{Constraint, Direction, Layout},
-            style::{Color, Style},
-            widgets::{Block, Borders, List, ListItem, Paragraph},
-        };
-
         let mut selected_item = 0;
         let mut config = Self {
             radical_file: "res/yujoy-3.8.0.txt".to_string(),
+            frequency_file: "res/counts.txt".to_string(),
             penalty: 4,
             practice_mode: PracticeMode::DualCode,
             order: PracticeOrder::Random,
@@ -100,6 +102,7 @@ impl GameConfig {
                 // 设置选项
                 let settings_items = vec![
                     ListItem::new(format!("字根文件: {}", config.radical_file)),
+                    ListItem::new(format!("频率文件: {}", config.frequency_file)),
                     ListItem::new(format!("错误惩罚: {}次", config.penalty)),
                     ListItem::new(format!(
                         "练习模式: {}",
@@ -165,6 +168,7 @@ impl GameConfig {
                                     "res/yujoy-3.8.0.txt",
                                     "res/yulight-3.8.0.txt",
                                     "res/yustar-3.8.0.txt",
+                                    "res/yujoy-3.6.0.txt",
                                     "按右方向键手动输入→",
                                 ];
                                 let current_index = files
@@ -256,6 +260,96 @@ impl GameConfig {
                                 }
                             }
                             1 => {
+                                // 频率文件逻辑（与字根文件类似）
+                                let files = [
+                                    "res/counts.txt",
+                                    "res/counts-3.6.0.txt",
+                                    "按右方向键手动输入→",
+                                ];
+                                let current_index = files
+                                    .iter()
+                                    .position(|&f| f == config.frequency_file.as_str())
+                                    .unwrap_or(files.len() - 1);
+
+                                match key.code {
+                                    KeyCode::Left => {
+                                        if current_index > 0 {
+                                            config.frequency_file =
+                                                files[current_index - 1].to_string();
+                                        } else if current_index == 0 {
+                                            config.frequency_file =
+                                                files[files.len() - 1].to_string();
+                                        }
+                                        if current_index == files.len() - 1 {
+                                            config.frequency_file =
+                                                files[files.len() - 2].to_string();
+                                        }
+                                    }
+                                    KeyCode::Right => {
+                                        if current_index < files.len() - 1 {
+                                            config.frequency_file =
+                                                files[current_index + 1].to_string();
+                                        } else if current_index == files.len() - 1 {
+                                            // 手动输入
+                                            let mut input = String::new();
+                                            terminal.draw(|f| {
+                                                let size = f.area();
+                                                let block = Block::default()
+                                                    .title("输入频率文件路径 (Enter确认, ESC取消)")
+                                                    .borders(Borders::ALL);
+                                                let input_text = Paragraph::new(input.as_str())
+                                                    .block(block)
+                                                    .alignment(Alignment::Center);
+                                                f.render_widget(input_text, size);
+                                            })?;
+                                            loop {
+                                                if let Event::Key(key) = event::read()? {
+                                                    #[cfg(windows)]
+                                                    if key.kind
+                                                        != crossterm::event::KeyEventKind::Press
+                                                    {
+                                                        continue;
+                                                    }
+                                                    match key.code {
+                                                        KeyCode::Char(c) => input.push(c),
+                                                        KeyCode::Backspace => {
+                                                            input.pop();
+                                                        }
+                                                        KeyCode::Enter => {
+                                                            if !input.is_empty() {
+                                                                config.frequency_file =
+                                                                    input.trim().to_string();
+                                                                break;
+                                                            }
+                                                        }
+                                                        KeyCode::Esc => {
+                                                            config.frequency_file =
+                                                                files[files.len() - 2].to_string();
+                                                            break;
+                                                        }
+                                                        _ => {}
+                                                    }
+                                                }
+                                                terminal.draw(|f| {
+                                                    let size = f.area();
+                                                    let block = Block::default()
+                                                        .title(format!(
+                                                            "输入频率文件路径: {}",
+                                                            input
+                                                        ))
+                                                        .borders(Borders::ALL);
+                                                    let input_text = Paragraph::new(input.as_str())
+                                                        .block(block)
+                                                        .alignment(Alignment::Center);
+                                                    f.render_widget(input_text, size);
+                                                })?;
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            2 => {
                                 config.penalty = match (config.penalty, key.code) {
                                     (1, KeyCode::Left) => 1,
                                     (n, KeyCode::Left) => n - 1,
@@ -264,7 +358,7 @@ impl GameConfig {
                                     _ => config.penalty,
                                 }
                             }
-                            2 => {
+                            3 => {
                                 config.practice_mode = match key.code {
                                     KeyCode::Left => match &config.practice_mode {
                                         PracticeMode::BigCode => PracticeMode::BigCode,
@@ -277,7 +371,7 @@ impl GameConfig {
                                     _ => config.practice_mode,
                                 }
                             }
-                            3 => {
+                            4 => {
                                 config.order = match key.code {
                                     KeyCode::Left => match &config.order {
                                         PracticeOrder::Alphabetical => PracticeOrder::Alphabetical,
@@ -294,7 +388,7 @@ impl GameConfig {
                                     _ => config.order,
                                 }
                             }
-                            4 => {
+                            5 => {
                                 config.mode = match key.code {
                                     KeyCode::Left => match &config.mode {
                                         GameMode::Normal => GameMode::Normal,
@@ -316,6 +410,7 @@ impl GameConfig {
                     KeyCode::Esc => {
                         return Ok(Self {
                             radical_file: "res/yujoy-3.8.0.txt".to_string(),
+                            frequency_file: "res/counts.txt".to_string(),
                             penalty: 4,
                             practice_mode: PracticeMode::DualCode,
                             order: PracticeOrder::Random,
@@ -434,7 +529,6 @@ impl GameState {
                 radicals
             }
             PracticeOrder::Random => {
-                use rand::seq::SliceRandom;
                 let mut rng = rand::thread_rng();
                 let mut radicals = radicals;
                 radicals.shuffle(&mut rng);
@@ -489,7 +583,6 @@ impl GameState {
 
     /// 生成随机字符用于摸鱼模式的空白区域(无边框)
     pub fn generate_pretend_chars(&self) -> String {
-        use rand::Rng;
         let mut rng = rand::thread_rng();
         let text_chars: Vec<char> =
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -641,7 +734,6 @@ impl GameState {
             PracticeOrder::Random => {
                 // 随机顺序
                 let mut indices: Vec<usize> = (0..self.radicals.len()).collect();
-                use rand::seq::SliceRandom;
                 let mut rng = rand::thread_rng();
                 indices.shuffle(&mut rng);
                 indices
@@ -649,7 +741,6 @@ impl GameState {
         };
 
         // 生成随机间隔(3-6)
-        use rand::Rng;
         let random_interval = rand::thread_rng().gen_range(3..=6);
 
         // 过滤掉不需要练习或最近随机间隔内练习过的字根
