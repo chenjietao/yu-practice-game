@@ -30,6 +30,7 @@ pub struct GameConfig {
     pub practice_mode: PracticeMode, // 练习模式
     pub order: PracticeOrder,        // 练习顺序
     pub mode: GameMode,              // 界面模式(正常/摸鱼)
+    pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -61,7 +62,7 @@ pub struct GameState {
     pub wrong_count: usize,                         // 错误计数
     pub total_practice: usize,                      // 总练习次数
     pub last_error: Option<String>,                 // 最后错误信息
-    pub recent_radicals: Vec<String>,               // 最近练习的字根(最多3个)
+    pub recent_radicals: Vec<String>,               // 最近练习的字根(最多6个)
     pub last_big_code: Option<String>,              // 上一个字根的大码(用于键盘高亮)
 }
 
@@ -78,6 +79,7 @@ impl GameConfig {
             practice_mode: PracticeMode::DualCode,
             order: PracticeOrder::Random,
             mode: GameMode::Normal,
+            cancelled: false,
         };
 
         loop {
@@ -88,7 +90,7 @@ impl GameConfig {
                     .margin(1)
                     .constraints([
                         Constraint::Length(3),
-                        Constraint::Min(10),
+                        Constraint::Min(8),
                         Constraint::Length(3),
                     ])
                     .split(size);
@@ -243,10 +245,7 @@ impl GameConfig {
                                                 terminal.draw(|f| {
                                                     let size = f.area();
                                                     let block = Block::default()
-                                                        .title(format!(
-                                                            "输入字根文件路径: {}",
-                                                            input
-                                                        ))
+                                                        .title("输入字根文件路径 (Enter确认, ESC取消)")
                                                         .borders(Borders::ALL);
                                                     let input_text = Paragraph::new(input.as_str())
                                                         .block(block)
@@ -333,10 +332,7 @@ impl GameConfig {
                                                 terminal.draw(|f| {
                                                     let size = f.area();
                                                     let block = Block::default()
-                                                        .title(format!(
-                                                            "输入频率文件路径: {}",
-                                                            input
-                                                        ))
+                                                        .title("输入频率文件路径 (Enter确认, ESC取消)")
                                                         .borders(Borders::ALL);
                                                     let input_text = Paragraph::new(input.as_str())
                                                         .block(block)
@@ -408,14 +404,8 @@ impl GameConfig {
                         return Ok(config);
                     }
                     KeyCode::Esc => {
-                        return Ok(Self {
-                            radical_file: "res/yujoy-3.8.0.txt".to_string(),
-                            frequency_file: "res/counts.txt".to_string(),
-                            penalty: 4,
-                            practice_mode: PracticeMode::DualCode,
-                            order: PracticeOrder::Random,
-                            mode: GameMode::Normal,
-                        });
+                        config.cancelled = true;
+                        return Ok(config)
                     }
                     _ => {}
                 }

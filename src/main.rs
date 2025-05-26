@@ -34,6 +34,13 @@ fn main() -> Result<()> {
     // 显示设置菜单
     let config = GameConfig::show_settings_menu(&mut terminal)?;
 
+    if config.cancelled {
+        // 清理终端
+        disable_raw_mode()?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        return Ok(());
+    }
+
     // 尝试从多个可能的位置加载资源文件
     let mut counts_path = None;
     let mut radical_path = None;
@@ -304,7 +311,7 @@ fn show_welcome(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result
         let size = f.area();
         let block = Block::default().title("宇浩字根练习").borders(Borders::ALL);
         let welcome_text =
-            Paragraph::new("欢迎使用宇浩字根练习游戏!\n\n按任意键继续...\n按Z键进入字根编码转换")
+            Paragraph::new("欢迎使用宇浩字根练习游戏!\n\n按任意键继续...\n按 Z 键进入字根编码转换")
                 .block(block)
                 .alignment(Alignment::Center);
         f.render_widget(welcome_text, size);
