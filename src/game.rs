@@ -22,7 +22,7 @@ pub struct Radical {
     pub small_code: String, // 小码
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameConfig {
     pub radical_file: String,        // 字根文件路径
     pub frequency_file: String,      // 频率文件路径
@@ -34,13 +34,13 @@ pub struct GameConfig {
     pub cancelled: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum PracticeMode {
     BigCode,  // 只练习大码
     DualCode, // 练习双编码
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum PracticeOrder {
     Alphabetical, // 按字母顺序
     Frequency,    // 按频率顺序
@@ -48,13 +48,13 @@ pub enum PracticeOrder {
     Random,       // 随机顺序
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum GameMode {
     Normal,  // 正常模式
     Pretend, // 摸鱼模式(只改变边框和空白区域)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GameState {
     pub radicals: Vec<Radical>,                     // 所有字根
     pub current_radical: usize,                     // 当前练习的字根索引
@@ -65,6 +65,59 @@ pub struct GameState {
     pub last_error: Option<String>,                 // 最后错误信息
     pub recent_radicals: Vec<String>,               // 最近练习的字根(最多6个)
     pub last_big_code: Option<String>,              // 上一个字根的大码(用于键盘高亮)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SaveData {
+    radicals: Vec<Radical>,
+    current_radical: usize,
+    remaining_practice: HashMap<String, usize>,
+    correct_count: usize,
+    wrong_count: usize,
+    total_practice: usize,
+    recent_radicals: Vec<String>,
+    config: GameConfig,
+}
+
+impl GameState {
+    pub fn save_to_file(&self, config: &GameConfig) -> Result<()> {
+        let save_data = SaveData {
+            radicals: self.radicals.clone(),
+            current_radical: self.current_radical,
+            remaining_practice: self.remaining_practice.clone(),
+            correct_count: self.correct_count,
+            wrong_count: self.wrong_count,
+            total_practice: self.total_practice,
+            recent_radicals: self.recent_radicals.clone(),
+            config: config.clone(),
+        };
+
+        let serialized = serde_json::to_string(&save_data)?;
+        fs::write("save.json", serialized)?;
+        Ok(())
+    }
+
+    pub fn load_from_file() -> Option<(Self, GameConfig)> {
+        if let Ok(data) = fs::read_to_string("save.json") {
+            if let Ok(save_data) = serde_json::from_str::<SaveData>(&data) {
+                return Some((
+                    GameState {
+                        radicals: save_data.radicals,
+                        current_radical: save_data.current_radical,
+                        remaining_practice: save_data.remaining_practice,
+                        correct_count: save_data.correct_count,
+                        wrong_count: save_data.wrong_count,
+                        total_practice: save_data.total_practice,
+                        last_error: None,
+                        recent_radicals: save_data.recent_radicals,
+                        last_big_code: None,
+                    },
+                    save_data.config,
+                ));
+            }
+        }
+        None
+    }
 }
 
 impl GameConfig {
@@ -113,7 +166,7 @@ impl GameConfig {
                         "练习模式: {}",
                         match config.practice_mode {
                             PracticeMode::BigCode => "仅大码",
-                            PracticeMode::DualCode => "双编码",
+                            PracticeMode::DualCode => "大小码",
                         }
                     )),
                     ListItem::new(format!(

@@ -1,3 +1,5 @@
 /target
 .DS_Store
 *.swp
+/save.json
+*_chaifen.dict.yaml

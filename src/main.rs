@@ -15,7 +15,7 @@ use ratatui::{
 };
 use std::char;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
@@ -28,6 +28,23 @@ fn main() -> Result<()> {
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+
+    // 检查是否有存档
+    if let Some((saved_state, saved_config)) = GameState::load_from_file() {
+        let continue_game = show_confirm_dialog(
+            &mut terminal,
+            "检测到存档，是否从上次保存的进度继续？",
+        )?;
+        
+        if continue_game {
+            let res = run_app(&mut terminal, saved_config, &mut saved_state.clone());
+            // 清理终端
+            disable_raw_mode()?;
+            execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+            return res;
+        }
+    }
+
 
     // 显示欢迎界面
     show_welcome(&mut terminal)?;
@@ -288,6 +305,10 @@ fn run_app(
                             if !game_state.next_radical(&config) && game_state.is_game_over() {
                                 // 游戏结束
                                 let _ = show_message(terminal, "恭喜完成所有练习!");
+                                // 删除存档文件
+                                if Path::new("save.json").exists() {
+                                    fs::remove_file("save.json")?;
+                                }
                                 return Ok(());
                             }
                         } else if let Some(_radical) = game_state.current_radical() {
@@ -297,6 +318,11 @@ fn run_app(
                     }
                 }
                 KeyCode::Esc => {
+                    // 询问是否保存进度
+                    let save = show_confirm_dialog(terminal, "是否保存当前进度？")?;
+                    if save {
+                        game_state.save_to_file(&config)?;
+                    }
                     return Ok(());
                 }
                 _ => {}
@@ -762,6 +788,38 @@ fn extract_codes(codes: &str, is_sun_moon: bool) -> Vec<String> {
             }
         })
         .collect()
+}
+
+fn show_confirm_dialog(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    message: &str,
+) -> Result<bool> {
+    terminal.draw(|f| {
+        let size = f.area();
+        let block = Block::default().title("确认").borders(Borders::ALL);
+        let text = Paragraph::new(vec![
+            Line::from(message),
+            Line::from(""),
+            Line::from("按Y确认，按N取消"),
+        ])
+        .block(block)
+        .alignment(Alignment::Center);
+        f.render_widget(text, size);
+    })?;
+
+    loop {
+        if let Event::Key(key) = event::read()? {
+            #[cfg(windows)]
+            if key.kind != event::KeyEventKind::Press {
+                continue;
+            }
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => return Ok(true),
+                KeyCode::Char('n') | KeyCode::Char('N') => return Ok(false),
+                _ => {}
+            }
+        }
+    }
 }
 
 fn show_message(
