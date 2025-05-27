@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode};
-use rand::{seq::SliceRandom, Rng, thread_rng};
+use rand::{seq::SliceRandom, Rng, rng};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
@@ -27,6 +27,7 @@ pub struct GameConfig {
     pub radical_file: String,        // 字根文件路径
     pub frequency_file: String,      // 频率文件路径
     pub penalty: usize,              // 错1罚几
+    pub min_practice_count: usize,    // 最小练习次数(1-5)
     pub practice_mode: PracticeMode, // 练习模式
     pub order: PracticeOrder,        // 练习顺序
     pub mode: GameMode,              // 界面模式(正常/摸鱼)
@@ -76,6 +77,7 @@ impl GameConfig {
             radical_file: "res/yujoy-3.8.0.txt".to_string(),
             frequency_file: "res/counts.txt".to_string(),
             penalty: 4,
+            min_practice_count: 2,    // 默认最小练习次数为2
             practice_mode: PracticeMode::DualCode,
             order: PracticeOrder::Random,
             mode: GameMode::Normal,
@@ -106,6 +108,7 @@ impl GameConfig {
                     ListItem::new(format!("字根文件: {}", config.radical_file)),
                     ListItem::new(format!("频率文件: {}", config.frequency_file)),
                     ListItem::new(format!("错误惩罚: {}次", config.penalty)),
+                    ListItem::new(format!("最少练习: {}次", config.min_practice_count)),
                     ListItem::new(format!(
                         "练习模式: {}",
                         match config.practice_mode {
@@ -159,7 +162,7 @@ impl GameConfig {
                         }
                     }
                     KeyCode::Down => {
-                        if selected_item < 4 {
+                        if selected_item < 6 {
                             selected_item += 1;
                         }
                     }
@@ -171,6 +174,7 @@ impl GameConfig {
                                     "res/yulight-3.8.0.txt",
                                     "res/yustar-3.8.0.txt",
                                     "res/yujoy-3.6.0.txt",
+                                    "res/yusm-3.9.0-20250522.txt",
                                     "按右方向键手动输入→",
                                 ];
                                 let current_idx = files
@@ -355,6 +359,15 @@ impl GameConfig {
                                 }
                             }
                             3 => {
+                                config.min_practice_count = match (config.min_practice_count, key.code) {
+                                    (1, KeyCode::Left) => 1,
+                                    (n, KeyCode::Left) => n - 1,
+                                    (5, KeyCode::Right) => 5,
+                                    (n, KeyCode::Right) => n + 1,
+                                    _ => config.min_practice_count,
+                                }
+                            }
+                            4 => {
                                 config.practice_mode = match key.code {
                                     KeyCode::Left => match &config.practice_mode {
                                         PracticeMode::BigCode => PracticeMode::BigCode,
@@ -367,7 +380,7 @@ impl GameConfig {
                                     _ => config.practice_mode,
                                 }
                             }
-                            4 => {
+                            5 => {
                                 config.order = match key.code {
                                     KeyCode::Left => match &config.order {
                                         PracticeOrder::Alphabetical => PracticeOrder::Alphabetical,
@@ -384,7 +397,7 @@ impl GameConfig {
                                     _ => config.order,
                                 }
                             }
-                            5 => {
+                            6 => {
                                 config.mode = match key.code {
                                     KeyCode::Left => match &config.mode {
                                         GameMode::Normal => GameMode::Normal,
@@ -519,7 +532,7 @@ impl GameState {
                 radicals
             }
             PracticeOrder::Random => {
-                let mut rng = thread_rng();
+                let mut rng = rng();
                 let mut radicals = radicals;
                 radicals.shuffle(&mut rng);
                 radicals
@@ -529,7 +542,7 @@ impl GameState {
         // 初始化每个字根的练习次数
         let mut remaining_practice = HashMap::new();
         for radical in &radicals {
-            remaining_practice.insert(radical.text.clone(), 2); // 默认每个字根练习2次
+            remaining_practice.insert(radical.text.clone(), config.min_practice_count);
         }
 
         GameState {
@@ -573,7 +586,7 @@ impl GameState {
 
     /// 生成随机字符用于摸鱼模式的空白区域(无边框)
     pub fn generate_pretend_chars(&self) -> String {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let text_chars: Vec<char> =
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
                 .chars()
@@ -581,26 +594,26 @@ impl GameState {
 
         // 生成高密度字符填充(覆盖80%界面)
         let mut result = String::new();
-        let line_count = rng.gen_range(20..30); // 20-30行
+        let line_count = rng.random_range(20..30); // 20-30行
 
         for _ in 0..line_count {
             // 每行生成30-50个随机字符
-            let chars_per_line = rng.gen_range(30..50);
+            let chars_per_line = rng.random_range(30..50);
             for _ in 0..chars_per_line {
-                result.push(text_chars[rng.gen_range(0..text_chars.len())]);
+                result.push(text_chars[rng.random_range(0..text_chars.len())]);
             }
             result.push('\n');
 
             // 添加少量空白行(10%概率)
-            if rng.gen_bool(0.1) {
+            if rng.random_bool(0.1) {
                 result.push('\n');
             }
         }
 
         // 确保最后一行也有完整字符
-        let last_line_chars = rng.gen_range(30..50);
+        let last_line_chars = rng.random_range(30..50);
         for _ in 0..last_line_chars {
-            result.push(text_chars[rng.gen_range(0..text_chars.len())]);
+            result.push(text_chars[rng.random_range(0..text_chars.len())]);
         }
 
         result
@@ -724,14 +737,14 @@ impl GameState {
             PracticeOrder::Random => {
                 // 随机顺序
                 let mut indices: Vec<usize> = (0..self.radicals.len()).collect();
-                let mut rng = thread_rng();
+                let mut rng = rng();
                 indices.shuffle(&mut rng);
                 indices
             }
         };
 
         // 生成随机间隔(3-6)
-        let random_interval = thread_rng().gen_range(3..=6);
+        let random_interval = rng().random_range(3..=6);
 
         // 过滤掉不需要练习或最近随机间隔内练习过的字根
         candidates.retain(|&i| {

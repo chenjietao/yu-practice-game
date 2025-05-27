@@ -310,11 +310,22 @@ fn run_app(
 fn show_welcome(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     terminal.draw(|f| {
         let size = f.area();
-        let block = Block::default().title("宇浩字根练习").borders(Borders::ALL);
-        let welcome_text =
-            Paragraph::new("欢迎使用宇浩字根练习游戏!\n\n按任意键继续...\n按 Z 键进入字根编码转换")
-                .block(block)
-                .alignment(Alignment::Center);
+        let block = Block::default()
+            .title("宇浩字根练习")
+            .borders(Borders::ALL);
+        let welcome_text = Paragraph::new(vec![
+            Line::from("欢迎使用宇浩字根练习工具"),
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("版本: {}", env!("CARGO_PKG_VERSION")),
+                Style::default().fg(Color::Gray),
+            )),
+            Line::from(""),
+            Line::from("按任意键继续..."),
+            Line::from("按 Z 键进入字根编码转换..."),
+        ])
+        .block(block)
+        .alignment(Alignment::Center);
         f.render_widget(welcome_text, size);
     })?;
 
