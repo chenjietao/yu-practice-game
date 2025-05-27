@@ -13,6 +13,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Terminal,
 };
+use std::char;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
@@ -60,8 +61,8 @@ fn main() -> Result<()> {
 
     // 2. 如果可执行文件目录找不到，尝试从项目根目录查找
     if counts_path.is_none() || radical_path.is_none() {
-        let project_counts = std::path::Path::new(&config.frequency_file);
-        let project_radical = std::path::Path::new(&config.radical_file);
+        let project_counts = Path::new(&config.frequency_file);
+        let project_radical = Path::new(&config.radical_file);
 
         if project_counts.exists() && project_radical.exists() {
             counts_path = Some(project_counts.to_path_buf());
@@ -159,9 +160,9 @@ fn run_app(
             let error_block = Block::default().title("提示").borders(border_style);
             let error_text = if let Some(error_msg) = &game_state.last_error {
                 let style = if error_msg.starts_with("【正确】") {
-                    ratatui::style::Style::default().fg(ratatui::style::Color::Green)
+                    Style::default().fg(Color::Green)
                 } else {
-                    ratatui::style::Style::default().fg(ratatui::style::Color::Red)
+                    Style::default().fg(Color::Red)
                 };
                 Paragraph::new(error_msg.clone())
                     .style(style)
@@ -258,7 +259,7 @@ fn run_app(
         // 处理用户输入
         if let Event::Key(key) = event::read()? {
             #[cfg(windows)]
-            if key.kind != crossterm::event::KeyEventKind::Press {
+            if key.kind != event::KeyEventKind::Press {
                 continue;
             }
             match key.code {
@@ -320,7 +321,7 @@ fn show_welcome(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result
     loop {
         if let Event::Key(key) = event::read()? {
             #[cfg(windows)]
-            if key.kind != crossterm::event::KeyEventKind::Press {
+            if key.kind != event::KeyEventKind::Press {
                 continue;
             }
             if key.code == KeyCode::Char('z') || key.code == KeyCode::Char('Z') {
@@ -364,7 +365,7 @@ fn show_conversion_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> 
 
             // 标题
             let title = Paragraph::new(
-                "字根编码转换，支持从宇浩单字拆分表导出字根编码和\n字根使用频率，当前仅支持双编码(宇浩日月暂不支持)",
+                "字根编码转换，支持从宇浩单字拆分表导出字根编码和字根使用频率",
             )
             .block(Block::default().borders(Borders::ALL))
             .alignment(Alignment::Center);
@@ -446,7 +447,7 @@ fn show_conversion_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> 
 
         if let Event::Key(key) = event::read()? {
             #[cfg(windows)]
-            if key.kind != crossterm::event::KeyEventKind::Press {
+            if key.kind != event::KeyEventKind::Press {
                 continue;
             }
             match key.code {
@@ -574,10 +575,10 @@ fn convert_radicals(
     let file = File::open(input_path)?;
     let reader = BufReader::new(file);
 
-    let mut radical_counts = HashMap::new();
-    let mut radical_codes = HashMap::new();
+    let mut radical_counts: HashMap<String, u32> = HashMap::new();
+    let mut radical_codes: HashMap<String, String> = HashMap::new();
     let mut processing = false;
-    let mut counting = false;
+    let mut is_sun_moon = false;
 
     for line in reader.lines() {
         let line = line?;
@@ -585,13 +586,17 @@ fn convert_radicals(
 
         // 跳过注释行和空行
         if line.is_empty() || line.starts_with('#') {
+            if !is_sun_moon && (line.starts_with("# 日月") || line.starts_with("# 宇浩日月"))
+            {
+                is_sun_moon = true
+            }
             continue;
         }
 
-        // 检查是否到达"一"行
-        if line.starts_with("一\t") {
+        // 检查是否到达"..."行
+        if !processing && line.starts_with("...") {
             processing = true;
-            counting = true;
+            continue;
         }
 
         if processing {
@@ -600,6 +605,7 @@ fn convert_radicals(
             if let Some(bracket_start) = line[tab_start..].find('[').map(|i| i + tab_start) {
                 if let Some(bracket_end) = line[tab_start..].find(']').map(|i| i + tab_start) {
                     let content = &line[bracket_start + 1..bracket_end];
+                    let counting = content.contains("CJK");
                     let parts: Vec<&str> = content.split(',').collect();
                     if parts.len() >= 2 {
                         let radicals = parts[0].trim(); // 拆分部分
@@ -611,7 +617,7 @@ fn convert_radicals(
 
                         // 处理拆分和编码
                         let radical_list = extract_radicals(radicals);
-                        let code_list = extract_codes(codes);
+                        let code_list = extract_codes(codes, is_sun_moon);
 
                         if radical_list.len() == code_list.len() {
                             let mut i = 0;
@@ -623,12 +629,17 @@ fn convert_radicals(
 
                                 i += 1;
                                 if i < 4 && code_list.len() == i {
-                                    // 记录字根编码
-                                    radical_codes.insert(radical.to_string(), code.to_string());
-                                    // 特殊处理"曾中"字根，使用"横日"的编码
-                                    if radical == "{横日}" {
-                                        radical_codes
-                                            .insert("{曾中}".to_string(), code.to_string());
+                                    if !radical_codes.contains_key(radical)
+                                        || radical_codes.get(radical).map_or("", |v| v).len()
+                                            < code.len()
+                                    {
+                                        // 记录字根编码
+                                        radical_codes.insert(radical.to_string(), code.to_string());
+                                        // 特殊处理"曾中"字根，使用"横日"的编码
+                                        if radical == "{横日}" {
+                                            radical_codes
+                                                .insert("{曾中}".to_string(), code.to_string());
+                                        }
                                     }
                                 }
                             }
@@ -636,13 +647,6 @@ fn convert_radicals(
                     }
                 }
             }
-        }
-
-        // 检查是否到达"𮹝"行
-        if line.starts_with("𮹝\t") {
-            counting = false;
-        } else if line.starts_with("Ä\t") {
-            break;
         }
     }
 
@@ -700,7 +704,7 @@ fn extract_radicals(radicals: &str) -> Vec<String> {
     result
 }
 
-fn extract_codes(codes: &str) -> Vec<String> {
+fn extract_codes(codes: &str, is_sun_moon: bool) -> Vec<String> {
     let mut result = Vec::new();
     let mut current = String::new();
     let mut in_code = false;
@@ -716,7 +720,11 @@ fn extract_codes(codes: &str) -> Vec<String> {
             in_code = true;
         } else if c.is_lowercase() && in_code {
             // 小写字母继续当前编码
-            current.push(c);
+            if c.is_ascii() {
+                current.push(c);
+            } else {
+                current.push(char::from_u32((c as u32) - 9327).unwrap())
+            }
         } else {
             // 其他字符结束当前编码
             if !current.is_empty() {
@@ -736,7 +744,7 @@ fn extract_codes(codes: &str) -> Vec<String> {
     result
         .iter()
         .map(|code| {
-            if code.len() > 2 {
+            if !is_sun_moon && code.len() > 2 {
                 code[..2].to_string()
             } else {
                 code.clone()
@@ -761,7 +769,7 @@ fn show_message(
     loop {
         if let Event::Key(key) = event::read()? {
             #[cfg(windows)]
-            if key.kind != crossterm::event::KeyEventKind::Press {
+            if key.kind != event::KeyEventKind::Press {
                 continue;
             }
             if key.code == KeyCode::Enter {

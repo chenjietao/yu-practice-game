@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode};
-use rand::{seq::SliceRandom, Rng};
+use rand::{seq::SliceRandom, Rng, thread_rng};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
@@ -98,7 +98,7 @@ impl GameConfig {
                 // 标题
                 let title = Paragraph::new("设置菜单")
                     .block(Block::default().borders(Borders::ALL))
-                    .alignment(ratatui::layout::Alignment::Center);
+                    .alignment(Alignment::Center);
                 f.render_widget(title, chunks[0]);
 
                 // 设置选项
@@ -143,13 +143,13 @@ impl GameConfig {
                 let help =
                     Paragraph::new("↑/↓: 选择选项 | ←/→: 修改选项 | Enter: 确认 | ESC: 取消")
                         .block(Block::default().borders(Borders::ALL))
-                        .alignment(ratatui::layout::Alignment::Center);
+                        .alignment(Alignment::Center);
                 f.render_widget(help, chunks[2]);
             })?;
 
             if let Event::Key(key) = event::read()? {
                 #[cfg(windows)]
-                if key.kind != crossterm::event::KeyEventKind::Press {
+                if key.kind != event::KeyEventKind::Press {
                     continue;
                 }
                 match key.code {
@@ -173,32 +173,32 @@ impl GameConfig {
                                     "res/yujoy-3.6.0.txt",
                                     "按右方向键手动输入→",
                                 ];
-                                let current_index = files
+                                let current_idx = files
                                     .iter()
                                     .position(|&f| f == config.radical_file.as_str())
                                     .unwrap_or(files.len() - 1);
 
                                 match key.code {
                                     KeyCode::Left => {
-                                        if current_index > 0 {
+                                        if current_idx > 0 {
                                             config.radical_file =
-                                                files[current_index - 1].to_string();
-                                        } else if current_index == 0 {
+                                                files[current_idx - 1].to_string();
+                                        } else if current_idx == 0 {
                                             config.radical_file =
                                                 files[files.len() - 1].to_string();
                                         }
 
                                         // 从手动输入切换回文件时清除输入内容
-                                        if current_index == files.len() - 1 {
+                                        if current_idx == files.len() - 1 {
                                             config.radical_file =
                                                 files[files.len() - 2].to_string();
                                         }
                                     }
                                     KeyCode::Right => {
-                                        if current_index < files.len() - 1 {
+                                        if current_idx < files.len() - 1 {
                                             config.radical_file =
-                                                files[current_index + 1].to_string();
-                                        } else if current_index == files.len() - 1 {
+                                                files[current_idx + 1].to_string();
+                                        } else if current_idx == files.len() - 1 {
                                             // 进入手动输入模式
                                             let mut input = String::new();
                                             terminal.draw(|f| {
@@ -216,7 +216,7 @@ impl GameConfig {
                                                 if let Event::Key(key) = event::read()? {
                                                     #[cfg(windows)]
                                                     if key.kind
-                                                        != crossterm::event::KeyEventKind::Press
+                                                        != event::KeyEventKind::Press
                                                     {
                                                         continue;
                                                     }
@@ -265,30 +265,30 @@ impl GameConfig {
                                     "res/counts-3.6.0.txt",
                                     "按右方向键手动输入→",
                                 ];
-                                let current_index = files
+                                let current_idx = files
                                     .iter()
                                     .position(|&f| f == config.frequency_file.as_str())
                                     .unwrap_or(files.len() - 1);
 
                                 match key.code {
                                     KeyCode::Left => {
-                                        if current_index > 0 {
+                                        if current_idx > 0 {
                                             config.frequency_file =
-                                                files[current_index - 1].to_string();
-                                        } else if current_index == 0 {
+                                                files[current_idx - 1].to_string();
+                                        } else if current_idx == 0 {
                                             config.frequency_file =
                                                 files[files.len() - 1].to_string();
                                         }
-                                        if current_index == files.len() - 1 {
+                                        if current_idx == files.len() - 1 {
                                             config.frequency_file =
                                                 files[files.len() - 2].to_string();
                                         }
                                     }
                                     KeyCode::Right => {
-                                        if current_index < files.len() - 1 {
+                                        if current_idx < files.len() - 1 {
                                             config.frequency_file =
-                                                files[current_index + 1].to_string();
-                                        } else if current_index == files.len() - 1 {
+                                                files[current_idx + 1].to_string();
+                                        } else if current_idx == files.len() - 1 {
                                             // 手动输入
                                             let mut input = String::new();
                                             terminal.draw(|f| {
@@ -305,7 +305,7 @@ impl GameConfig {
                                                 if let Event::Key(key) = event::read()? {
                                                     #[cfg(windows)]
                                                     if key.kind
-                                                        != crossterm::event::KeyEventKind::Press
+                                                        != event::KeyEventKind::Press
                                                     {
                                                         continue;
                                                     }
@@ -519,7 +519,7 @@ impl GameState {
                 radicals
             }
             PracticeOrder::Random => {
-                let mut rng = rand::thread_rng();
+                let mut rng = thread_rng();
                 let mut radicals = radicals;
                 radicals.shuffle(&mut rng);
                 radicals
@@ -573,7 +573,7 @@ impl GameState {
 
     /// 生成随机字符用于摸鱼模式的空白区域(无边框)
     pub fn generate_pretend_chars(&self) -> String {
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let text_chars: Vec<char> =
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
                 .chars()
@@ -724,14 +724,14 @@ impl GameState {
             PracticeOrder::Random => {
                 // 随机顺序
                 let mut indices: Vec<usize> = (0..self.radicals.len()).collect();
-                let mut rng = rand::thread_rng();
+                let mut rng = thread_rng();
                 indices.shuffle(&mut rng);
                 indices
             }
         };
 
         // 生成随机间隔(3-6)
-        let random_interval = rand::thread_rng().gen_range(3..=6);
+        let random_interval = thread_rng().gen_range(3..=6);
 
         // 过滤掉不需要练习或最近随机间隔内练习过的字根
         candidates.retain(|&i| {
@@ -768,15 +768,15 @@ impl GameState {
         }
 
         // 选择下一个字根
-        if let Some(&next_index) = candidates.first() {
+        if let Some(&next_idx) = candidates.first() {
             // 更新最近练习的字根列表
-            if let Some(radical) = self.radicals.get(next_index) {
+            if let Some(radical) = self.radicals.get(next_idx) {
                 self.recent_radicals.insert(0, radical.text.clone());
                 if self.recent_radicals.len() > 6 {
                     self.recent_radicals.pop();
                 }
             }
-            self.current_radical = next_index;
+            self.current_radical = next_idx;
             true
         } else {
             false
